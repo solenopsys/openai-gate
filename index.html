@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebRTC OpenAI Voice Assistant</title>
+    <meta charset="utf-8">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 12px 24px;
+            margin: 0 10px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        #callButton {
+            background-color: #28a745;
+            color: white;
+        }
+        #callButton:hover:not(:disabled) {
+            background-color: #218838;
+        }
+        #hangupButton {
+            background-color: #dc3545;
+            color: white;
+        }
+        #hangupButton:hover:not(:disabled) {
+            background-color: #c82333;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        #status {
+            text-align: center;
+            padding: 15px;
+            margin: 20px 0;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+        .status-connecting {
+            background-color: #fff3cd !important;
+            color: #856404;
+        }
+        .status-connected {
+            background-color: #d4edda !important;
+            color: #155724;
+        }
+        .status-error {
+            background-color: #f8d7da !important;
+            color: #721c24;
+        }
+        audio {
+            display: none;
+        }
+        .info {
+            background-color: #d1ecf1;
+            border: 1px solid #bee5eb;
+            border-radius: 5px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        .debug {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin-top: 20px;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎙️ WebRTC OpenAI Voice Assistant</h1>
+        
+        <div class="controls">
+            <button id="callButton">Start Call</button>
+            <button id="hangupButton" disabled>End Call</button>
+        </div>
+        
+        <div id="status">Ready to start call</div>
+        
+        <div class="info">
+            <strong>Instructions:</strong>
+            <ul>
+                <li>Click "Start Call" to begin voice conversation with AI</li>
+                <li>Allow microphone access when prompted</li>
+                <li>Speak naturally - the AI will respond with voice</li>
+                <li>Uses standard WebRTC audio format with backend conversion</li>
+                <li>Click "End Call" when finished</li>
+            </ul>
+        </div>
+        
+        <div id="debug" class="debug"></div>
+        
+        <audio id="localAudio" autoplay muted></audio>
+        <audio id="remoteAudio" autoplay></audio>
+    </div>
+
+    <script>
+        let ws = null;
+        let pc = null;
+        let localStream = null;
+        
+        const callButton = document.getElementById('callButton');
+        const hangupButton = document.getElementById('hangupButton');
+        const status = document.getElementById('status');
+        const debugDiv = document.getElementById('debug');
+        const localAudio = document.getElementById('localAudio');
+        const remoteAudio = document.getElementById('remoteAudio');
+
+        // Стандартная конфигурация WebRTC
+        const pcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        function debugLog(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = `[${timestamp}] ${message}\n`;
+            debugDiv.textContent += logEntry;
+            debugDiv.scrollTop = debugDiv.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(msg, className = '') {
+            status.textContent = msg;
+            status.className = className;
+            debugLog(`STATUS: ${msg}`);
+        }
+
+        function connectWebSocket() {
+            return new Promise((resolve, reject) => {
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/ws?user=924334534534`;
+                
+                debugLog(`Connecting WebSocket to: ${wsUrl}`);
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = () => {
+                    updateStatus('WebSocket connected', 'status-connected');
+                    resolve();
+                };
+                
+                ws.onmessage = async (event) => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        debugLog(`WS Message: ${message.type}`);
+                        await handleSignalingMessage(message);
+                    } catch (error) {
+                        debugLog(`Error handling WebSocket message: ${error}`);
+                    }
+                };
+                
+                ws.onclose = (event) => {
+                    updateStatus('WebSocket disconnected', 'status-error');
+                    debugLog(`WebSocket closed: ${event.code} ${event.reason}`);
+                };
+                
+                ws.onerror = (error) => {
+                    updateStatus('WebSocket connection failed', 'status-error');
+                    debugLog(`WebSocket error: ${error}`);
+                    reject(error);
+                };
+
+                // Timeout after 5 seconds
+                setTimeout(() => {
+                    if (ws.readyState !== WebSocket.OPEN) {
+                        reject(new Error('WebSocket connection timeout'));
+                    }
+                }, 5000);
+            });
+        }
+
+        async function handleSignalingMessage(message) {
+            debugLog(`Handling signaling message: ${message.type}`);
+            
+            try {
+                switch (message.type) {
+                    case 'answer':
+                        if (pc && message.data) {
+                            debugLog('Setting remote description from answer');
+                            await pc.setRemoteDescription(new RTCSessionDescription(message.data));
+                            updateStatus('Call connected - speak now!', 'status-connected');
+                        }
+                        break;
+                    case 'ice-candidate':
+                        if (pc && message.data) {
+                            debugLog('Adding ICE candidate');
+                            await pc.addIceCandidate(new RTCIceCandidate(message.data));
+                        }
+                        break;
+                    default:
+                        debugLog(`Unknown message type: ${message.type}`);
+                }
+            } catch (error) {
+                debugLog(`Error handling signaling message: ${error}`);
+                updateStatus('Error in call setup', 'status-error');
+            }
+        }
+
+        function sendSignalingMessage(type, data) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                const message = { type, data };
+                debugLog(`Sending signaling message: ${type}`);
+                ws.send(JSON.stringify(message));
+            } else {
+                debugLog('WebSocket not ready for sending message');
+            }
+        }
+
+        async function startCall() {
+            try {
+                updateStatus('Connecting...', 'status-connecting');
+                
+                // Connect WebSocket first
+                await connectWebSocket();
+                
+                updateStatus('Getting microphone access...', 'status-connecting');
+                
+                // Запрашиваем стандартное аудио без принудительных настроек
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true
+                        // Убираем принудительные sampleRate и channelCount
+                    },
+                    video: false
+                });
+                
+                debugLog(`Got media stream with ${localStream.getAudioTracks().length} audio tracks`);
+                localStream.getAudioTracks().forEach(track => {
+                    const settings = track.getSettings();
+                    debugLog(`Audio track settings: ${JSON.stringify(settings)}`);
+                });
+                
+                localAudio.srcObject = localStream;
+                updateStatus('Creating peer connection...', 'status-connecting');
+                
+                // Create peer connection
+                pc = new RTCPeerConnection(pcConfig);
+                
+                // Add local stream to peer connection
+                localStream.getTracks().forEach(track => {
+                    debugLog(`Adding track: ${track.kind} ${track.label}`);
+                    pc.addTrack(track, localStream);
+                });
+                
+                // Handle remote stream
+                pc.ontrack = (event) => {
+                    debugLog(`Received remote track: ${event.track.kind}`);
+                    if (event.streams && event.streams[0]) {
+                        remoteAudio.srcObject = event.streams[0];
+                        updateStatus('Receiving AI audio...', 'status-connected');
+                        
+                        // Логируем параметры входящего аудио
+                        event.track.onmute = () => debugLog('Remote track muted');
+                        event.track.onunmute = () => debugLog('Remote track unmuted');
+                    }
+                };
+                
+                // Handle ICE candidates
+                pc.onicecandidate = (event) => {
+                    if (event.candidate) {
+                        debugLog(`Sending ICE candidate: ${event.candidate.candidate}`);
+                        sendSignalingMessage('ice-candidate', event.candidate);
+                    } else {
+                        debugLog('ICE gathering completed');
+                    }
+                };
+                
+                // Monitor connection state
+                pc.onconnectionstatechange = () => {
+                    debugLog(`Connection state: ${pc.connectionState}`);
+                    switch (pc.connectionState) {
+                        case 'connected':
+                            updateStatus('Call connected - speak now!', 'status-connected');
+                            break;
+                        case 'disconnected':
+                        case 'failed':
+                            updateStatus('Call failed or disconnected', 'status-error');
+                            break;
+                        case 'closed':
+                            updateStatus('Call ended', '');
+                            break;
+                    }
+                };
+
+                pc.oniceconnectionstatechange = () => {
+                    debugLog(`ICE connection state: ${pc.iceConnectionState}`);
+                };
+                
+                // Create and send offer БЕЗ модификации SDP
+                updateStatus('Creating call offer...', 'status-connecting');
+                const offer = await pc.createOffer({
+                    offerToReceiveAudio: true,
+                    offerToReceiveVideo: false
+                });
+                
+                // Логируем SDP для отладки, но НЕ модифицируем его
+                debugLog('Original SDP length: ' + offer.sdp.length);
+                if (offer.sdp.includes('opus')) {
+                    debugLog('Opus codec found in SDP - will use default format');
+                } else {
+                    debugLog('Opus codec not found in SDP');
+                }
+                
+                // Устанавливаем ОРИГИНАЛЬНЫЙ SDP без изменений
+                await pc.setLocalDescription(offer);
+                sendSignalingMessage('offer', offer);
+                
+                // Update UI
+                callButton.disabled = true;
+                hangupButton.disabled = false;
+                
+                updateStatus('Waiting for AI response...', 'status-connecting');
+                
+            } catch (error) {
+                debugLog(`Error starting call: ${error}`);
+                updateStatus(`Error: ${error.message}`, 'status-error');
+                await cleanup();
+            }
+        }
+
+        async function hangupCall() {
+            updateStatus('Ending call...', 'status-connecting');
+            await cleanup();
+            updateStatus('Call ended', '');
+        }
+
+        async function cleanup() {
+            debugLog('Starting cleanup...');
+            
+            // Close peer connection
+            if (pc) {
+                pc.close();
+                pc = null;
+                debugLog('Peer connection closed');
+            }
+            
+            // Stop local stream
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    track.stop();
+                    debugLog(`Stopped track: ${track.kind}`);
+                });
+                localStream = null;
+            }
+            
+            // Close WebSocket
+            if (ws) {
+                ws.close();
+                ws = null;
+                debugLog('WebSocket closed');
+            }
+            
+            // Clear audio elements
+            localAudio.srcObject = null;
+            remoteAudio.srcObject = null;
+            
+            // Update UI
+            callButton.disabled = false;
+            hangupButton.disabled = true;
+            
+            debugLog('Cleanup completed');
+        }
+
+        // Event listeners
+        callButton.addEventListener('click', startCall);
+        hangupButton.addEventListener('click', hangupCall);
+        
+        // Clean up on page unload
+        window.addEventListener('beforeunload', cleanup);
+        
+        debugLog('WebRTC Voice Assistant loaded');
+    </script>
+</body>
+</html>
