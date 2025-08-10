@@ -16,7 +16,7 @@ import (
 type OpusPacketMetadata struct {
 	SessionID   string
 	Timestamp   time.Time
-	Direction   string // "incoming" или "outgoing"
+	Direction   string // "aiu" или "user"
 	PacketSize  int
 	SequenceNum int64
 }
@@ -129,7 +129,7 @@ func (b *Bridge) callIncomingOpusHandler(session *BridgeSession, opusData []byte
 		metadata := OpusPacketMetadata{
 			SessionID:   session.id,
 			Timestamp:   time.Now(),
-			Direction:   "incoming",
+			Direction:   "aiu",
 			PacketSize:  len(opusData),
 			SequenceNum: seqNum,
 		}
@@ -150,7 +150,7 @@ func (b *Bridge) callOutgoingOpusHandler(session *BridgeSession, opusData []byte
 		metadata := OpusPacketMetadata{
 			SessionID:   session.id,
 			Timestamp:   time.Now(),
-			Direction:   "outgoing",
+			Direction:   "user",
 			PacketSize:  len(opusData),
 			SequenceNum: seqNum,
 		}
@@ -182,6 +182,9 @@ func (b *Bridge) callSessionEndHandler(session *BridgeSession, reason string) {
 func (b *Bridge) CreateSession(endpoint AudioEndpoint, identifier string, from string) (*BridgeSession, error) {
 	if b.apiKey == "" {
 		return nil, fmt.Errorf("OpenAI API key is empty")
+	}
+	if identifier == "" {
+		identifier = "default"
 	}
 
 	b.contextStore.SaveUserSession(identifier, endpoint.GetID(), from, time.Now().UnixNano())

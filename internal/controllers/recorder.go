@@ -98,16 +98,16 @@ func (c *OpusRecorderController) SetMergingEnabled(enabled bool) {
 }
 
 // SetRecordingOptions настраивает что записывать
-func (c *OpusRecorderController) SetRecordingOptions(incoming, outgoing bool) {
-	c.recordIncoming = incoming
-	c.recordOutgoing = outgoing
+func (c *OpusRecorderController) SetRecordingOptions(userSource, aiSource bool) {
+	c.recordIncoming = userSource
+	c.recordOutgoing = aiSource
 }
 
 // GetIncomingPacketHandler возвращает хендлер для входящих пакетов
 func (c *OpusRecorderController) GetIncomingPacketHandler() func(session Session, opusData []byte, metadata OpusPacketMetadata) {
 	return func(session Session, opusData []byte, metadata OpusPacketMetadata) {
 		if c.recordIncoming {
-			c.addPacket(metadata.SessionID, opusData, "incoming", metadata.Timestamp, metadata.SequenceNum)
+			c.addPacket(metadata.SessionID, opusData, UserSource, metadata.Timestamp, metadata.SequenceNum)
 		}
 	}
 }
@@ -116,7 +116,7 @@ func (c *OpusRecorderController) GetIncomingPacketHandler() func(session Session
 func (c *OpusRecorderController) GetOutgoingPacketHandler() func(session Session, opusData []byte, metadata OpusPacketMetadata) {
 	return func(session Session, opusData []byte, metadata OpusPacketMetadata) {
 		if c.recordOutgoing {
-			c.addPacket(metadata.SessionID, opusData, "outgoing", metadata.Timestamp, metadata.SequenceNum)
+			c.addPacket(metadata.SessionID, opusData, AiSource, metadata.Timestamp, metadata.SequenceNum)
 		}
 	}
 }
@@ -160,7 +160,7 @@ func (c *OpusRecorderController) addPacket(sessionID string, data []byte, direct
 
 	// Обновляем статистику
 	recording.mutex.Lock()
-	if direction == "incoming" {
+	if direction == UserSource {
 		recording.IncomingCount++
 	} else {
 		recording.OutgoingCount++
@@ -194,7 +194,7 @@ func (c *OpusRecorderController) finalizeSession(sessionID string, reason string
 	duration := recording.EndTime.Sub(recording.StartTime)
 	recording.mutex.Unlock()
 
-	log.Printf("Finalizing session %s (reason: %s): %d incoming, %d outgoing packets, duration: %v",
+	log.Printf("Finalizing session %s (reason: %s): %d UserSource, %d user packets, duration: %v",
 		sessionID, reason, incomingCount, outgoingCount, duration)
 
 }
@@ -204,16 +204,16 @@ func (c *OpusRecorderController) loadPacketsFromStore(sessionID string) ([]OpusP
 	var allPackets []OpusPacket
 
 	// Загружаем входящие пакеты
-	incomingBatch, err := c.store.GetOpusFrames(sessionID, "user")
+	incomingBatch, err := c.store.GetOpusFrames(sessionID, AiSource)
 	if err != nil {
-		log.Printf("WARNING: Failed to load incoming frames for session %s: %v", sessionID, err)
+		log.Printf("WARNING: Failed to load AiSource frames for session %s: %v", sessionID, err)
 	} else {
-		log.Printf("Loaded %d incoming frames for session %s", len(incomingBatch.Frames), sessionID)
+		log.Printf("Loaded %d AiSource frames for session %s", len(incomingBatch.Frames), sessionID)
 		for timestampNanos, data := range incomingBatch.Frames {
 			packet := OpusPacket{
 				Data:      data,
 				Timestamp: time.Unix(0, timestampNanos),
-				Source:    "user",
+				Source:    AiSource,
 				SeqNum:    timestampNanos, // Используем timestamp как sequence number
 			}
 			allPackets = append(allPackets, packet)
@@ -221,16 +221,16 @@ func (c *OpusRecorderController) loadPacketsFromStore(sessionID string) ([]OpusP
 	}
 
 	// Загружаем исходящие пакеты
-	outgoingBatch, err := c.store.GetOpusFrames(sessionID, "ai")
+	outgoingBatch, err := c.store.GetOpusFrames(sessionID, UserSource)
 	if err != nil {
-		log.Printf("WARNING: Failed to load outgoing frames for session %s: %v", sessionID, err)
+		log.Printf("WARNING: Failed to load user frames for session %s: %v", sessionID, err)
 	} else {
-		log.Printf("Loaded %d outgoing frames for session %s", len(outgoingBatch.Frames), sessionID)
+		log.Printf("Loaded %d user frames for session %s", len(outgoingBatch.Frames), sessionID)
 		for timestampNanos, data := range outgoingBatch.Frames {
 			packet := OpusPacket{
 				Data:      data,
 				Timestamp: time.Unix(0, timestampNanos),
-				Source:    "ai",
+				Source:    UserSource,
 				SeqNum:    timestampNanos,
 			}
 			allPackets = append(allPackets, packet)
@@ -318,7 +318,7 @@ func (c *OpusRecorderController) CreateWebMData(sessionID string, source string)
 
 	// Создаем WebM данные для указанного направления
 	var trackName string
-	if source == "user" {
+	if source == UserSource {
 		trackName = fmt.Sprintf("User#%s", sessionID)
 	} else {
 		trackName = fmt.Sprintf("Assistant#%s", sessionID)

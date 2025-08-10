@@ -35,11 +35,11 @@ func (tc *TranscriptController) parseOpenAIMessage(rawData []byte) (string, stri
 	switch msgType {
 	case "conversation.item.input_audio_transcription.completed":
 		if transcript, exists := msg["transcript"].(string); exists {
-			text, source = transcript, "user"
+			text, source = transcript, UserSource
 		}
 	case "response.audio_transcript.done":
 		if transcript, exists := msg["transcript"].(string); exists {
-			text, source = transcript, "assistant"
+			text, source = transcript, AiSource
 		}
 	default:
 		return "", "", false

@@ -159,6 +159,63 @@ func (db *Database) Filter(prefix string) (map[string][]byte, error) {
 	return result, err
 }
 
+// DeleteByPrefix удаляет все записи с указанным префиксом
+func (db *Database) DeleteByPrefix(prefix string) error {
+	return db.env.Update(func(txn *mdbx.Txn) error {
+		cur, err := txn.OpenCursor(db.dbi)
+		if err != nil {
+			return err
+		}
+		defer cur.Close()
+
+		// Формируем диапазон: "prefix:" - "prefix;"
+		startKey := prefix + ":"
+		endKey := prefix + ";"
+
+		startBytes := []byte(startKey)
+
+		// Находим первый ключ >= startKey
+		key, _, err := cur.Get(startBytes, nil, mdbx.SetRange)
+		if err != nil {
+			if mdbx.IsNotFound(err) {
+				return nil // Нет записей в диапазоне
+			}
+			return err
+		}
+
+		// Обходим все записи в диапазоне
+		for {
+			keyStr := string(key)
+
+			// Проверяем, что не вышли за границы диапазона
+			if keyStr >= endKey {
+				break
+			}
+
+			// Удаляем запись
+			err := txn.Del(db.dbi, []byte(keyStr), nil)
+			if err != nil && mdbx.IsNotFound(err) {
+				// Игнорируем ошибку "не найден" при удалении
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+
+			// Переходим к следующей записи
+			key, _, err = cur.Get(nil, nil, mdbx.Next)
+			if err != nil {
+				if mdbx.IsNotFound(err) {
+					break
+				}
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 // Close закрывает соединение с базой данных
 func (db *Database) Close() error {
 	if db.env != nil {

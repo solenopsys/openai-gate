@@ -304,7 +304,7 @@ func (s *OpenAIService) setupWebRTCHandlers() {
 		return
 	}
 
-	// Handle incoming audio tracks
+	// Handle user audio tracks
 	pc.OnTrack(func(track *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		if track.Kind() == webrtc.RTPCodecTypeAudio {
 			go s.handleIncomingAudio(track)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sip-webrtc-openai/internal/controllers"
 	"sip-webrtc-openai/internal/store"
+	"sort"
 
 	"github.com/gin-gonic/gin"
 )
@@ -35,9 +36,15 @@ func (api *ContextAPI) Start(addr string) error {
 	r.DELETE("/context/:phone", api.deleteContext)
 	r.GET("/contexts", api.listContexts)
 
-	// Новые маршруты для записей и транскриптов
-	r.GET("/record/:sessionid", api.getRecord)
+	// sessions list
+	r.GET("/sessions", api.listSessions)
+	r.GET("/record/:sessionid/:source", api.getRecord)
 	r.GET("/transcript/:sessionid", api.getTranscript)
+	// delete record
+	r.DELETE("/record/:sessionid", api.deleteRecord)
+	// delete transcript
+	r.DELETE("/transcript/:sessionid", api.deleteTranscript)
+
 	r.GET("/user/:user", api.getUserSessions)
 
 	return r.Run(addr)
@@ -108,6 +115,39 @@ func (api *ContextAPI) listContexts(c *gin.Context) {
 	c.JSON(200, contexts)
 }
 
+func (api *ContextAPI) deleteRecord(c *gin.Context) {
+	sessionID := c.Param("sessionid")
+	source := c.Query("source")
+
+	if err := api.store.DeleteOpusFrames(sessionID, source); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"ok": true})
+}
+
+func (api *ContextAPI) listSessions(c *gin.Context) {
+	sessions, err := api.store.ListSessions()
+	if err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, sessions)
+}
+
+func (api *ContextAPI) deleteTranscript(c *gin.Context) {
+	sessionID := c.Param("sessionid")
+
+	if err := api.store.DeleteDialogTexts(sessionID); err != nil {
+		c.JSON(500, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, gin.H{"ok": true})
+}
+
 func (api *ContextAPI) GetContextByPhone(phone string) (string, error) {
 	return api.store.GetContext(phone)
 }
@@ -115,11 +155,11 @@ func (api *ContextAPI) GetContextByPhone(phone string) (string, error) {
 // getRecord отдает WebM файл записи сессии
 func (api *ContextAPI) getRecord(c *gin.Context) {
 	sessionID := c.Param("sessionid")
-	source := c.Query("source")
+	source := c.Param("source")
 
 	// Проверяем, что source указан
 	if source == "" {
-		c.JSON(400, gin.H{"error": "source parameter is required (incoming/outgoing)"})
+		c.JSON(400, gin.H{"error": "source parameter is required (ai/user)"})
 		return
 	}
 
@@ -138,7 +178,6 @@ func (api *ContextAPI) getRecord(c *gin.Context) {
 	c.Data(200, "audio/webm", data)
 }
 
-// getTranscript отдает JSON файл транскрипта сессии
 func (api *ContextAPI) getTranscript(c *gin.Context) {
 	sessionID := c.Param("sessionid")
 
@@ -156,6 +195,11 @@ func (api *ContextAPI) getTranscript(c *gin.Context) {
 			Text:   phrase.Phrase,
 		}
 	}
+
+	// Сортируем по времени (по возрастанию)
+	sort.Slice(messages, func(i, j int) bool {
+		return messages[i].Time < messages[j].Time
+	})
 
 	// Отдаем JSON
 	c.JSON(200, gin.H{"transcript": messages})

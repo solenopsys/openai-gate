@@ -94,7 +94,7 @@ func main() {
 		incomingHandler(session, opusData, recorderMetadata)
 
 		// Дополнительная логика (если нужна)
-		log.Printf("Recording incoming packet: Session=%s, Size=%d bytes",
+		log.Printf("Recording aiu packet: Session=%s, Size=%d bytes",
 			metadata.SessionID, metadata.PacketSize)
 	})
 
@@ -112,7 +112,7 @@ func main() {
 		outgoingHandler(session, opusData, recorderMetadata)
 
 		// Дополнительная логика (если нужна)
-		log.Printf("Recording outgoing packet: Session=%s, Size=%d bytes",
+		log.Printf("Recording user packet: Session=%s, Size=%d bytes",
 			metadata.SessionID, metadata.PacketSize)
 	})
 

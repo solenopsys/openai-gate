@@ -25,6 +25,7 @@ type WebRTCEndpoint struct {
 	bridge           *bridge.Bridge
 	session          *bridge.BridgeSession
 	mu               sync.RWMutex
+	wsMutex          sync.Mutex // Защита от concurrent write в websocket
 	isClosed         bool
 	ctx              context.Context
 	cancel           context.CancelFunc
@@ -65,7 +66,7 @@ func (s *WebRTCService) HandleWebSocket(w http.ResponseWriter, r *http.Request) 
 
 	ctx, cancel := context.WithCancel(context.Background())
 	endpoint := &WebRTCEndpoint{
-		id:         fmt.Sprintf("webrtc-%d", time.Now().UnixNano()),
+		id:         fmt.Sprintf("%d", time.Now().UnixNano()),
 		identifier: identifier,
 		conn:       conn,
 		bridge:     s.bridge,
@@ -373,6 +374,10 @@ func (e *WebRTCEndpoint) sendSignalingMessage(msgType string, data interface{}) 
 		Type: msgType,
 		Data: data,
 	}
+
+	// Защита от concurrent write в websocket
+	e.wsMutex.Lock()
+	defer e.wsMutex.Unlock()
 
 	return conn.WriteJSON(msg)
 }

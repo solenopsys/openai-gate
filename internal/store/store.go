@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 )
@@ -42,6 +43,25 @@ func (s *ContextStore) SaveUserSession(user string, session string, srcType stri
 	return key, nil
 }
 
+func (s *ContextStore) DeleteUserSession(user string, session string, srcType string, time int64) error {
+	key := "user:" + user + ":" + srcType + ":" + fmt.Sprintf("%d", time)
+	err := s.db.Delete(key)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// delete opus frames
+func (s *ContextStore) DeleteOpusFrames(session string, source string) error {
+	prefix := "audio:" + session + ":" + source
+	err := s.db.DeleteByPrefix(prefix)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ContextStore) GetUserSessions(user string, srcType string) ([]string, error) {
 	prefix := "user:" + user + ":" + srcType
 	listSessions, err := s.db.Filter(prefix)
@@ -57,7 +77,11 @@ func (s *ContextStore) GetUserSessions(user string, srcType string) ([]string, e
 }
 
 func (s *ContextStore) SaveOpusFrame(session string, source string, frame []byte, time int64) (string, error) {
-	key := "session:audio:" + session + ":" + source + ":" + fmt.Sprintf("%d", time)
+
+	key := "audio:" + session + ":" + source + ":" + fmt.Sprintf("%d", time)
+	// logs
+
+	log.Println("SaveOpusFrame", key)
 	err := s.db.Set(key, frame)
 	if err != nil {
 		return "", err
@@ -66,7 +90,9 @@ func (s *ContextStore) SaveOpusFrame(session string, source string, frame []byte
 }
 
 func (s *ContextStore) SaveDialogPhrase(session string, source string, phrase string, time int64) (string, error) {
-	key := "session:text:" + session + ":" + source + ":" + fmt.Sprintf("%d", time)
+	key := "text:" + session + ":" + source + ":" + fmt.Sprintf("%d", time)
+	// logs
+	log.Println("SaveDialogPhrase", key)
 	err := s.db.Set(key, []byte(phrase))
 	if err != nil {
 		return "", err
@@ -75,27 +101,30 @@ func (s *ContextStore) SaveDialogPhrase(session string, source string, phrase st
 }
 
 func (s *ContextStore) GetDialogTexts(session string) ([]DialogPhrase, error) {
-	prefix := "session:text:" + session
+	prefix := "text:" + session
+	// logs
+	log.Println("GetDialogTexts", prefix)
 	listPhrases, err := s.db.Filter(prefix)
 	if err != nil {
 		return nil, err
 	}
-
+	log.Println("GetDialogTexts", listPhrases)
 	phrases := []DialogPhrase{}
 	for key, value := range listPhrases {
-		// split key: session:text:sessionId:source:time
+
+		// split key: text:session:source:time
 		parts := strings.Split(key, ":")
-		if len(parts) < 5 {
+		if len(parts) < 4 {
 			continue // пропускаем некорректные ключи
 		}
 
-		timeString := parts[4] // время находится в 5-м элементе (индекс 4)
+		timeString := parts[3]
 		time, err := strconv.ParseInt(timeString, 10, 64)
 		if err != nil {
-			continue // пропускаем некорректные записи вместо возврата ошибки
+			continue
 		}
 
-		source := parts[3] // источник находится в 4-м элементе (индекс 3)
+		source := parts[2]
 		phrases = append(phrases, DialogPhrase{
 			Time:   time,
 			Source: source,
@@ -106,8 +135,17 @@ func (s *ContextStore) GetDialogTexts(session string) ([]DialogPhrase, error) {
 	return phrases, nil
 }
 
+func (s *ContextStore) DeleteDialogTexts(session string) error {
+	prefix := "text:" + session
+	err := s.db.DeleteByPrefix(prefix)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *ContextStore) GetOpusFrames(session string, source string) (*OpusBatch, error) {
-	prefix := "session:audio:" + session + ":" + source
+	prefix := "audio:" + session + ":" + source
 	listFrames, err := s.db.Filter(prefix)
 	if err != nil {
 		return nil, err
@@ -120,13 +158,13 @@ func (s *ContextStore) GetOpusFrames(session string, source string) (*OpusBatch,
 	}
 
 	for key, value := range listFrames {
-		// split key: session:audio:sessionId:source:time
+		// split key: audio:sessionId:source:time
 		parts := strings.Split(key, ":")
-		if len(parts) < 5 {
+		if len(parts) < 4 {
 			continue // пропускаем некорректные ключи
 		}
 
-		timeString := parts[4] // время находится в 5-м элементе (индекс 4)
+		timeString := parts[3] // время находится в 4-м элементе (индекс 3)
 		time, err := strconv.ParseInt(timeString, 10, 64)
 		if err != nil {
 			continue // пропускаем некорректные записи
@@ -154,7 +192,8 @@ func (s *ContextStore) DeleteContext(phone string) error {
 }
 
 func (s *ContextStore) ListContexts() (map[string]string, error) {
-	data, err := s.db.Filter("context:")
+	data, err := s.db.Filter("context")
+
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +207,34 @@ func (s *ContextStore) ListContexts() (map[string]string, error) {
 	}
 
 	return contexts, nil
+}
+
+func (s *ContextStore) ListSessions() ([]string, error) {
+	data, err := s.db.Filter("user")
+
+	log.Println("ListSessions", data)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Используем map для уникальных сессий
+	uniqueSessions := make(map[string]bool)
+
+	// Извлекаем sessionID из VALUES, а не из ключей!
+	for _, value := range data {
+		sessionID := string(value)
+		if sessionID != "" {
+			uniqueSessions[sessionID] = true
+		}
+	}
+
+	sessions := []string{}
+	for sessionID := range uniqueSessions {
+		sessions = append(sessions, sessionID)
+	}
+
+	return sessions, nil
 }
 
 func (s *ContextStore) Close() error {
