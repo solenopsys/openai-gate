@@ -35,6 +35,7 @@ func main() {
 	contextApiPort := getEnvAsInt("CONTEXT_API_PORT", 8081)
 	enableSIP := getEnvAsBool("ENABLE_SIP", true)
 	enableWeb := getEnvAsBool("ENABLE_WEB", true)
+	dataDirPath := getEnv("DATA_DIR", "/app/data")
 	enableContextAPI := getEnvAsBool("ENABLE_CONTEXT_API", true)
 
 	// Get OpenAI API key
@@ -47,7 +48,7 @@ func main() {
 	log.Printf("SIP enabled: %v, WebRTC enabled: %v, Context API enabled: %v", enableSIP, enableWeb, enableContextAPI)
 
 	// Инициализируем context store
-	contextStore, err := store.NewContextStore("contexts.db")
+	contextStore, err := store.NewContextStore(dataDirPath + "/contexts.db")
 	if err != nil {
 		log.Fatalf("Failed to initialize context store: %v", err)
 	}
@@ -94,7 +95,7 @@ func main() {
 		incomingHandler(session, opusData, recorderMetadata)
 
 		// Дополнительная логика (если нужна)
-		log.Printf("Recording aiu packet: Session=%s, Size=%d bytes",
+		log.Printf("Recording a packet: Session=%s, Size=%d bytes",
 			metadata.SessionID, metadata.PacketSize)
 	})
 

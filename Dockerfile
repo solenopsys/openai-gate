@@ -14,7 +14,7 @@
     # собираем бинарь
     RUN CGO_ENABLED=1 \
         GOOS=linux \
-        go build -ldflags="-s -w" -o /sip-webrtc-openai ./cmd/sip-webrtc-openai
+        go build -ldflags="-s -w" -o /openai-gate ./cmd/openai-gate
     
     # ---------- runtime ----------
     FROM alpine:latest
@@ -22,9 +22,9 @@
     WORKDIR /app
     RUN apk add --no-cache ca-certificates tzdata sqlite
     
-    COPY --from=builder /sip-webrtc-openai .
+    COPY --from=builder /openai-gate .
     COPY index.html .
     
     USER 1000 
-    ENTRYPOINT ["./sip-webrtc-openai"]
+    ENTRYPOINT ["./openai-gate"]
     

@@ -16,9 +16,11 @@ Enables real-time, bidirectional audio and text exchange without intermediate tr
 ---
 for install baresip baresip/install.sh
 
+`
 baresip for testing
 /dial sip:78632020220@localhost:5060
 /dial sip:78632020220@52.14.23.78:5060
+`
 
 
 

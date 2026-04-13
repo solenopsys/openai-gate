@@ -16,7 +16,7 @@ import (
 type OpusPacketMetadata struct {
 	SessionID   string
 	Timestamp   time.Time
-	Direction   string // "aiu" или "user"
+	Direction   string // "ai" или "user"
 	PacketSize  int
 	SequenceNum int64
 }
@@ -129,7 +129,7 @@ func (b *Bridge) callIncomingOpusHandler(session *BridgeSession, opusData []byte
 		metadata := OpusPacketMetadata{
 			SessionID:   session.id,
 			Timestamp:   time.Now(),
-			Direction:   "aiu",
+			Direction:   controllers.UserSource,
 			PacketSize:  len(opusData),
 			SequenceNum: seqNum,
 		}
@@ -150,7 +150,7 @@ func (b *Bridge) callOutgoingOpusHandler(session *BridgeSession, opusData []byte
 		metadata := OpusPacketMetadata{
 			SessionID:   session.id,
 			Timestamp:   time.Now(),
-			Direction:   "user",
+			Direction:   controllers.AiSource,
 			PacketSize:  len(opusData),
 			SequenceNum: seqNum,
 		}
